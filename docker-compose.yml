@@ -1,0 +1,47 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: reviews
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - review-mcp
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mcp-server:
+    build:
+      context: .
+      dockerfile: mcp_server/Dockerfile
+    ports:
+      - "8002:8002"
+    env_file:
+      - .env
+    environment:
+      # Override DSN so the container talks to the sibling postgres service.
+      - POSTGRES_DSN=postgresql://postgres:postgres@postgres:5432/reviews?options=-csearch_path%3Dgoogle_reviews%2Cpublic
+    volumes:
+      # Mount source for dev: code changes are picked up on restart, not rebuild.
+      - ./google_reviews:/workspace/google_reviews
+      - ./mcp_server:/workspace/mcp_server
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - review-mcp
+
+volumes:
+  postgres_data:
+
+networks:
+  review-mcp:
+    driver: bridge

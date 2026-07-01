@@ -1,0 +1,48 @@
+[project]
+name = "google-reviews-integration"
+version = "0.1.0"
+description = "Reusable provider-agnostic Google Maps reviews integration primitives."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "requests>=2.32.0,<3.0.0",
+    "tenacity>=9.0.0,<10.0.0",
+    "pydantic>=2.10.0,<3.0.0",
+    "pydantic-settings>=2.6.0,<3.0.0",
+    "psycopg[binary]>=3.2.0,<4.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0,<9.0.0",
+    "responses>=0.25.0,<1.0.0",
+    "ruff>=0.9.0,<1.0.0",
+    "mypy>=1.14.0,<2.0.0",
+    "types-requests>=2.32.0.20241016,<3.0.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["..", "."]
+markers = [
+    "integration: marks tests that call external services",
+    "paid_api: marks tests that can incur API cost",
+]
+
+[tool.mypy]
+python_version = "3.12"
+warn_unused_configs = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+# Tests construct Settings() directly (relying on .env to satisfy required fields at
+# runtime) and are not part of the shipped library surface - exclude from type-checking.
+exclude = ["tests/"]
