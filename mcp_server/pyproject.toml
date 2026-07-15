@@ -16,7 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.3.0,<9.0.0",
+    "pytest>=9.1.1,<10.0.0",
     "ruff>=0.9.0,<1.0.0",
     "mypy>=1.14.0,<2.0.0",
     # Stub for `requests`, used transitively when mypy follows imports into google_reviews/
