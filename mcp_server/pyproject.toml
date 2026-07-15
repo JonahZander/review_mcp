@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "FastMCP server exposing google_reviews tools via the Model Context Protocol."
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "fastmcp>=2.0.0,<3.0.0",
+    "fastmcp>=3.4.4,<4.0.0",
     "uvicorn>=0.34.0,<1.0.0",
     # google_reviews runtime deps (not installed as a package, so listed here explicitly)
     "requests>=2.32.0,<3.0.0",
