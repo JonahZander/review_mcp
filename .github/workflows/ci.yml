@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [google_reviews, mcp_server]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.3"
+          enable-cache: true
+          cache-dependency-glob: ${{ matrix.project }}/uv.lock
+      - run: uv sync --project ${{ matrix.project }} --locked --extra dev
+      - run: uv run --locked --extra dev ruff check .
+        working-directory: ${{ matrix.project }}
+      - run: uv run --locked --extra dev mypy .
+        working-directory: ${{ matrix.project }}
+      - if: matrix.project == 'google_reviews'
+        run: uv run --project google_reviews --locked --extra dev pytest google_reviews/tests/unit
+
+  dependency-audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.3"
+      - run: uv export --project google_reviews --locked --no-dev --no-emit-project --no-hashes --output-file /tmp/google-reviews-requirements.txt
+      - run: uvx --python 3.12 --from pip-audit pip-audit --disable-pip --no-deps --requirement /tmp/google-reviews-requirements.txt
+      - run: uv export --project mcp_server --locked --no-dev --no-emit-project --no-hashes --output-file /tmp/mcp-server-requirements.txt
+      - name: Audit MCP dependencies
+        run: >-
+          uvx --python 3.12 --from pip-audit pip-audit
+          --disable-pip --no-deps
+          --ignore-vuln PYSEC-2026-2447
+          --ignore-vuln PYSEC-2026-2475
+          --ignore-vuln PYSEC-2026-2476
+          --requirement /tmp/mcp-server-requirements.txt
+
+  container:
+    name: Container and startup smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp .env.example .env
+      - run: docker compose config --quiet
+      - run: docker compose build
+      - run: docker compose up --detach postgres
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.3"
+      - name: Start server without real provider credentials
+        env:
+          SEARCH_PROVIDER: serpapi
+          SERPAPI_API_KEY: ci-placeholder-not-used
+          POSTGRES_DSN: postgresql://postgres:postgres@localhost:5432/reviews?options=-csearch_path%3Dgoogle_reviews%2Cpublic
+        run: uv run --project mcp_server --locked python scripts/smoke_server.py
+      - if: always()
+        run: docker compose down --volumes

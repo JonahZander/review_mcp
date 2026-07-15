@@ -4,7 +4,7 @@
   <img src="blog/hero.png" alt="AI agent pulling Google Reviews across multiple locations" width="720" />
 </p>
 
-A purpose-built [Model Context Protocol](https://modelcontextprotocol.io) server that lets an AI agent pull Google Reviews for a company in **one tool call** - across every location, sorted by best / worst / newest / most-relevant, and cached in PostgreSQL so the same question isn't billed twice.
+A purpose-built [Model Context Protocol](https://modelcontextprotocol.io) server that lets an AI agent sample Google Reviews for a company in **one tool call** - across a bounded set of locations, sorted by best / worst / newest / most-relevant, and cached in PostgreSQL so the same question isn't billed twice.
 
 > **Companion essay:** [`blog/post.md`](./blog/post.md) - *Building the bridges your AI needs.* Explains what an MCP server is, what this one does, and the engineering tradeoffs behind it.
 
@@ -12,9 +12,9 @@ A purpose-built [Model Context Protocol](https://modelcontextprotocol.io) server
 
 ## Why this exists
 
-SerpAPI already ships a generic MCP server. An agent could use that and do the whole job itself: search for the place, call "get reviews" once for best, again for worst, again for newest, paginate as needed, repeat for every location. It works - but every one of those steps is another agent turn, another round of reasoning, more tokens, another billed API call.
+SerpAPI already ships a generic MCP server. An agent could use that and do the whole job itself: search for places, choose locations, call "get reviews" once for best, again for worst, again for newest, and paginate as needed. It works - but every one of those steps is another agent turn, another round of reasoning, more tokens, and another billed API call.
 
-**Real number from a test run:** pulling a full overview for Madrona Bakery took **2 MCP tool calls** (one to find the place, one for the overview). Inside the server, that fanned out to **11 SerpAPI requests** - one fallback search through three query variants, then four sort orders × two pages each. From the agent's perspective: two turns, twelve seconds. With a generic MCP, the same answer would have taken the agent ~11 turns and ~11 rounds of reasoning about what to call next.
+**One test run, measured in 2026:** pulling an overview for Madrona Bakery took **2 MCP tool calls** (one to find the place, one for the overview) and about twelve seconds. Inside the server, that fanned out to **11 SerpAPI requests** - one search that tried three query variants, then four sort orders × two pages each. An equivalent low-level workflow would have required roughly 11 agent-directed steps. This is an example from one run, not a latency or turn-count guarantee.
 
 When a workflow is predictable enough to describe in a sentence, the agent shouldn't have to rediscover it every time.
 
@@ -45,7 +45,7 @@ google_reviews/       Orchestration: provider abstraction, retry, sort-order fan
 | `search_company_places_raw` | JSON     | Same, structured output                             |
 | `get_place_reviews`         | markdown | N reviews for one place in one sort order           |
 | `get_place_reviews_raw`     | JSON     | Same, structured output                             |
-| `get_company_overview`      | markdown | **Full overview** across all locations × all sorts  |
+| `get_company_overview`      | markdown | Bounded overview across locations × all sorts       |
 | `get_company_overview_raw`  | JSON     | Same, structured output                             |
 
 Full parameter reference and constraints in [`mcp_server/README.md`](./mcp_server/README.md).
@@ -57,6 +57,8 @@ cp .env.example .env
 # Edit .env - set SERPAPI_API_KEY (free tier: 100 searches/month)
 docker compose up --build
 ```
+
+Compose binds both services to the local loopback interface. The example database password and API-key placeholders are local setup defaults; replace the provider key in `.env` before use.
 
 - MCP endpoint: `http://localhost:8002/api/mcp/reviews`
 - PostgreSQL: `localhost:5432` (db `reviews`, user `postgres`, password `postgres`)
@@ -86,8 +88,8 @@ PYTHONPATH=.. uv run python server.py
 
 ```bash
 cd google_reviews
-uv run pytest tests/unit           # 46 tests, fully mocked, no network, <1s
-uv run pytest tests/integration    # hits live APIs, needs valid keys
+uv run --extra dev pytest tests/unit           # 46 tests, fully mocked, no network, <1s
+uv run --extra dev pytest tests/integration    # hits live APIs, needs valid keys
 ```
 
 Integration tests are marked `@pytest.mark.integration` and `@pytest.mark.paid_api`, so you can select or skip them in CI depending on whether you want to burn API credits on every run.
@@ -95,9 +97,17 @@ Integration tests are marked `@pytest.mark.integration` and `@pytest.mark.paid_a
 Static checks:
 
 ```bash
-cd mcp_server      && uv run ruff check . && uv run mypy .
-cd google_reviews  && uv run ruff check . && uv run mypy .
+cd mcp_server      && uv run --extra dev ruff check . && uv run --extra dev mypy .
+cd google_reviews  && uv run --extra dev ruff check . && uv run --extra dev mypy .
 ```
+
+## Local data and schema
+
+The PostgreSQL cache has no automatic retention window; cached third-party review data remains in the local Docker volume until it is refreshed or the volume is removed. Schema setup currently uses idempotent `CREATE TABLE IF NOT EXISTS` statements rather than a migration framework. After an incompatible schema change, recreate the local database volume before starting the services again.
+
+## Dependency audit notes
+
+CI audits both locked runtime dependency sets. Three advisories are explicitly deferred: `PYSEC-2026-2475` and `PYSEC-2026-2476` require the separately tested FastMCP 3 migration, while transitive `diskcache` advisory `PYSEC-2026-2447` currently has no fixed release. The audit continues to fail for any other advisory.
 
 ## Project layout
 

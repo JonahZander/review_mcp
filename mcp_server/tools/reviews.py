@@ -81,13 +81,13 @@ def register(mcp: FastMCP) -> CompanyReviewService:
         name, address, rating, and review count. Results are cached - repeat calls for
         the same URL return instantly without hitting the API.
 
-        **No pagination**: place discovery is a single API call - all matching locations
-        are returned at once. There is no way to page through additional results.
+        **No pagination**: place discovery is a single API call. Matching locations from
+        that provider response are returned; there is no way to page through more results.
 
         **Workflow**: Call this first to find data_id values. Pass those to
         get_place_reviews to fetch the actual reviews for a specific location.
 
-        Use get_company_overview instead if you want reviews for all locations in one call.
+        Use get_company_overview instead for a bounded multi-location sample in one call.
 
         **When to use**: Only useful for companies with customer-facing physical locations
         (medical practices, clinics, restaurants, retail stores, gyms, hotels) where
@@ -287,10 +287,11 @@ def register(mcp: FastMCP) -> CompanyReviewService:
             ),
         ] = 20,
     ) -> str:
-        """Full Google Maps review overview for a company across all its locations.
+        """Google Maps review overview for a bounded number of company locations.
 
-        Discovers all matching Google Maps locations, then for each location fetches
-        reviews across all sort orders (best, worst, newest, most_relevant) and the
+        Discovers matching Google Maps locations, then fetches reviews for up to
+        max_companies locations across all sort orders (best, worst, newest,
+        most_relevant) and the
         rating histogram when the provider supplies one (often absent with SerpAPI).
         For locations with few total reviews, all reviews are fetched
         in one call rather than repeating across sort orders. Locations beyond

@@ -94,7 +94,7 @@ class CompanyReviewService:
         max_companies: int = 3,
         max_reviews_per_sort: int = 20,
     ) -> str:
-        """Full company review overview across all locations and sort orders.
+        """Bounded company review overview across locations and sort orders.
 
         Discovers places, fetches reviews (best, worst, newest, most_relevant),
         and retrieves histograms for each location.

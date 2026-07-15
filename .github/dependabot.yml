@@ -1,0 +1,28 @@
+version: 2
+updates:
+  - package-ecosystem: uv
+    directory: /google_reviews
+    schedule:
+      interval: weekly
+    groups:
+      compatible-updates:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: uv
+    directory: /mcp_server
+    schedule:
+      interval: weekly
+    groups:
+      compatible-updates:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      compatible-updates:
+        patterns: ["*"]
+        update-types: [minor, patch]

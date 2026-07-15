@@ -28,7 +28,7 @@ The AI decides *when* to use a tool based on the conversation. You give it capab
 
 Say you run a business with locations in several cities. Keeping a pulse on customer sentiment is a headache. Google Reviews are scattered across dozens of listings. Most AI models, when asked "what are the reviews like for our locations?", will pull up maybe five recent ones from a single listing and call it a day. That's not useful when you're trying to spot patterns across ten or twenty sites.
 
-With the right tool, you can ask your AI to "pull the reviews across all our locations and summarize the biggest complaints customers are having," and it actually can. It calls the search tool to find every location, fetches reviews sorted by rating, and gives you a useful summary instead of five reviews from one place.
+With the right tool, you can ask your AI to "sample reviews across our locations and summarize the biggest complaints customers are having," and it actually can. It calls the search tool to find matching locations, fetches a bounded set of reviews sorted by rating, and gives you a useful summary instead of five reviews from one place.
 
 ## What I built
 
@@ -36,7 +36,7 @@ This project is an MCP server for Google Reviews. It lets AI agents look up and 
 
 - Find all Google Maps listings for a company given its URL
 - Fetch reviews sorted by best, worst, newest, or most relevant
-- Generate an overview across all locations, with rating histograms when the data provider supplies them
+- Generate an overview across a configurable number of locations, with rating histograms when the data provider supplies them
 
 A tool definition can be surprisingly short:
 
@@ -64,9 +64,9 @@ The function definition is the easy part.
 
 Behind that clean function signature, there's a lot of messy work. And some scars.
 
-**SerpAPI already ships an MCP server. This one still exists for a reason.** An agent could use the generic SerpAPI tools and do the whole job itself: call "search place," call "get reviews" for the best ratings, again for the worst, again for the newest, stitch the three lists together, repeat for every location. It works. But every one of those steps is another agent turn, another round of reasoning about what to call next, more tokens spent on the agent's own output, and another billed API call. When the workflow is predictable enough that you can write it down as a sentence ("the 20 best, 20 worst, and 20 newest reviews for every location of this company"), the agent shouldn't have to rediscover it from scratch every time. A single purpose-built tool that runs the whole sequence in one call, caches the results to the database as a side effect, and hands back a clean summary collapses dozens of agent turns into one. That is most of the reason this server exists.
+**SerpAPI already ships an MCP server. This one still exists for a reason.** An agent could use the generic SerpAPI tools and do the whole job itself: call "search place," call "get reviews" for the best ratings, again for the worst, again for the newest, stitch the lists together, and repeat for each selected location. It works. But every one of those steps is another agent turn, another round of reasoning about what to call next, more tokens spent on the agent's own output, and another billed API call. When the workflow is predictable enough that you can write it down as a sentence ("sample the best, worst, newest, and most relevant reviews across these locations"), the agent shouldn't have to rediscover it from scratch every time. A single purpose-built tool runs the bounded sequence in one call, caches the results to the database as a side effect, and hands back a clean summary.
 
-**Two tool calls, eleven API calls.** I tested this against Madrona Bakery. The agent made two MCP calls: one to find the place, one for the overview. Inside the server that fanned out to eleven SerpAPI requests: the first domain search returned no match, so the server tried three query variants until one stuck, then pulled four different sort orders (best, worst, newest, most relevant) across two pages each. Eighty reviews, twelve seconds of wall clock, two turns from the agent's side. With a generic MCP the agent would have had to run all eleven of those steps itself: eleven turns, eleven rounds of reasoning about which call comes next, every intermediate response re-read into the context before the next decision. Just as important: none of those eleven raw API responses ever touched the agent's context window. The retries, the query fallbacks, the pagination noise, all of it stayed inside the server. The agent's context stays clean and open for what it's actually for: the conversation and the analysis.
+**Two tool calls, eleven API calls in one 2026 test run.** I tested this against Madrona Bakery. The agent made two MCP calls: one to find the place, one for the overview. Inside the server that fanned out to eleven SerpAPI requests: the first domain search returned no match, so the server tried three query variants until one stuck, then pulled four different sort orders (best, worst, newest, most relevant) across two pages each. That run returned eighty reviews in about twelve seconds. An equivalent generic workflow would have required roughly eleven agent-directed steps, with each intermediate response returning to the context before the next decision. These numbers describe that run, not a general latency or turn-count promise. Just as important, none of the raw API responses touched the agent's context window. The retries, query variants, and pagination noise stayed inside the server.
 
 **A skill is different from a tool.** The usual alternative to writing a server is to write a skill: a doc that teaches the agent how to use the raw API. That works. But the agent still executes every step. It still pays the turn cost, still burns tokens re-reading its own output between calls, still has to decide what to do when a search returns empty. A skill improves the agent's instructions. A tool removes the steps from the agent entirely. For any workflow you'll run more than a handful of times, removing the steps wins.
 
@@ -89,5 +89,3 @@ Each of these follows the same architecture: define the tool, connect it to the 
 Right now, the hard part isn't the AI itself. It's connecting it to the messy, fragmented systems where actual work happens. You don't need to rebuild your tech stack. One server with one or two tools is enough to prove the value. Build clean interfaces, cache results, abstract your vendors. The work compounds.
 
 The Model Context Protocol is open and growing. You can explore the specification at [modelcontextprotocol.io](https://modelcontextprotocol.io).
-
-I built this one because the generic MCP tools pushed too much of the workflow onto the agent. If you're working through the same problem in your own stack, I'd be glad to talk it through. The code is right here in this repo.

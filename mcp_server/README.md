@@ -7,8 +7,7 @@ FastMCP server exposing `google_reviews` tools via the MCP StreamableHTTP transp
 ```
 MCP Client (Cursor, Claude, etc.)
     │
-    ├── local dev:  http://localhost:8002/api/mcp/reviews
-    └── production: https://<host>/api/mcp/reviews
+    └── local: http://localhost:8002/api/mcp/reviews
 ```
 
 The server wraps `CompanyReviewService` from the sibling `google_reviews/` module as six MCP tools.
@@ -22,7 +21,7 @@ It owns no business logic - every tool is a direct pass-through to the service l
 | `search_company_places_raw`| JSON     | Same, structured output                            |
 | `get_place_reviews`        | markdown | Reviews for one place by `data_id`                 |
 | `get_place_reviews_raw`    | JSON     | Same, structured output                            |
-| `get_company_overview`     | markdown | Full overview across all locations and sort orders |
+| `get_company_overview`     | markdown | Bounded overview across locations and sort orders  |
 | `get_company_overview_raw` | JSON     | Same, structured output                            |
 
 ### Parameter reference
