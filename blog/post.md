@@ -1,40 +1,38 @@
 # Building the bridges your AI needs
 
-*How I built a custom AI tool for Google Reviews, and why purpose-built tools beat generic ones for predictable workflows.*
+*How I built a custom Google Reviews tool for an AI agent, and what I learned from moving a repeated workflow into code.*
 
 **Jonah Zander** | March 3, 2026
 
 ---
 
-You probably already use ChatGPT or Claude. Maybe daily. But you've noticed the gap: you ask about something specific to your own systems (a database, a CRM, what your customers are saying on Google) and the AI gives you a polished answer about nothing in particular.
+ChatGPT and Claude know a lot about the public internet. Ask either one about your own database, CRM, or Google Reviews, though, and the answer gets vague quickly.
 
-That's not an intelligence problem. It's an access problem.
+The missing piece is access to the data.
 
-AI models today are like a brilliant new hire on their first day. They want to help, but they don't have the login to your systems. They can't pull your data or check what your customers are saying on Google. They're locked out of the world they need to work in.
-
-So I built a bridge.
+I kept running into that gap while working with company reviews. The model could analyze the data once it had it, but getting the right reviews into the conversation took too many manual steps. I built an MCP server to handle that part.
 
 ## What is an MCP server?
 
-MCP, the Model Context Protocol, is an open standard that lets AI models use custom tools. Think of it like giving your AI assistant a set of specialized apps on its phone. One app looks up Google Reviews. Another queries your database. A third pulls data from your CRM.
+MCP, the Model Context Protocol, is an open standard for giving AI clients access to custom tools. A tool might look up Google Reviews or query an internal database.
 
-Here's how it works:
+The setup is straightforward:
 
 1. You define tools: functions with clear inputs and outputs, like "given a company URL, find all its Google Maps locations"
 2. You wrap them in a small server, a lightweight web service that speaks MCP
-3. Any compatible AI client (Claude, Cursor, or your own application) discovers the tools and calls them as needed
+3. A compatible client, such as Claude or Cursor, discovers the tools and calls them when needed
 
-The AI decides *when* to use a tool based on the conversation. You give it capabilities, and it applies them when they're relevant.
+The client uses the tool descriptions and parameter schemas to decide when to call them.
 
-Say you run a business with locations in several cities. Keeping a pulse on customer sentiment is a headache. Google Reviews are scattered across dozens of listings. Most AI models, when asked "what are the reviews like for our locations?", will pull up maybe five recent ones from a single listing and call it a day. That's not useful when you're trying to spot patterns across ten or twenty sites.
+Say a business has locations in several cities. Its Google Reviews are split across separate listings. A general web search might return five recent reviews from one location, which is not enough to compare complaints across the company.
 
-With the right tool, you can ask your AI to "sample reviews across our locations and summarize the biggest complaints customers are having," and it actually can. It calls the search tool to find matching locations, fetches a bounded set of reviews sorted by rating, and gives you a useful summary instead of five reviews from one place.
+With this server, I can ask an agent to sample reviews across the locations and summarize recurring complaints. The server finds matching places and fetches a bounded set of reviews in several sort orders. The agent receives the combined result.
 
 ## What I built
 
-This project is an MCP server for Google Reviews. It lets AI agents look up and analyze reviews for any business. It can:
+This MCP server gives an agent six tools for Google Reviews. Together they can:
 
-- Find all Google Maps listings for a company given its URL
+- Find Google Maps listings that match a company URL
 - Fetch reviews sorted by best, worst, newest, or most relevant
 - Generate an overview across a configurable number of locations, with rating histograms when the data provider supplies them
 
@@ -46,46 +44,44 @@ async def search_company_places(
     company_url: str,
     company_name: str | None = None,
 ) -> str:
-    """Search for all Google Maps / Google Business
-    locations associated with a company.
+    """Search for Google Maps / Google Business
+    locations that match a company.
 
     Returns a formatted overview of discovered places
     including names, addresses, ratings, and review counts.
     """
 ```
 
-This is one of the simpler tool definitions, but there's a lot packed into it. The AI doesn't just see the docstring. It receives the full schema: parameter names, types, descriptions, defaults. It uses all of that to decide which tool to call and how to fill in the arguments. You write a function with good annotations, and the AI figures out when and how to use it.
-
-The function definition is the easy part.
+The function is short, but the client receives more than its docstring. FastMCP generates a schema containing the parameter names, types, descriptions, and defaults. The agent uses that schema to choose a tool and fill in its arguments.
 
 ## The engineering that makes it work
 
-*This section gets into the implementation details. If you're more interested in the big picture, feel free to skip ahead to [the takeaway](#the-takeaway).*
+*This section covers the implementation. [Skip to the takeaway](#the-takeaway) for the shorter version.*
 
-Behind that clean function signature, there's a lot of messy work. And some scars.
+The tool definition is small because the awkward parts live below it.
 
-**SerpAPI already ships an MCP server. This one still exists for a reason.** An agent could use the generic SerpAPI tools and do the whole job itself: call "search place," call "get reviews" for the best ratings, again for the worst, again for the newest, stitch the lists together, and repeat for each selected location. It works. But every one of those steps is another agent turn, another round of reasoning about what to call next, more tokens spent on the agent's own output, and another billed API call. When the workflow is predictable enough that you can write it down as a sentence ("sample the best, worst, newest, and most relevant reviews across these locations"), the agent shouldn't have to rediscover it from scratch every time. A single purpose-built tool runs the bounded sequence in one call, caches the results to the database as a side effect, and hands back a clean summary.
+SerpAPI already ships an MCP server, so I could have stopped there. Its tools expose the individual operations: search for a place, fetch reviews, paginate, change the sort order, and repeat for another location. That works for an occasional query. For the same review workflow every time, it leaves the agent doing a lot of bookkeeping. I wanted one call that ran the sequence and returned the combined result.
 
-**Two tool calls, eleven API calls in one 2026 test run.** I tested this against Madrona Bakery. The agent made two MCP calls: one to find the place, one for the overview. Inside the server that fanned out to eleven SerpAPI requests: the first domain search returned no match, so the server tried three query variants until one stuck, then pulled four different sort orders (best, worst, newest, most relevant) across two pages each. That run returned eighty reviews in about twelve seconds. An equivalent generic workflow would have required roughly eleven agent-directed steps, with each intermediate response returning to the context before the next decision. These numbers describe that run, not a general latency or turn-count promise. Just as important, none of the raw API responses touched the agent's context window. The retries, query variants, and pagination noise stayed inside the server.
+I tested it against Madrona Bakery in 2026. The agent made two MCP calls: one to find the place and one to request the overview. The server made eleven SerpAPI requests. The first domain search found nothing, so it tried two more query variants, then fetched four sort orders across two pages each. The run returned eighty reviews in about twelve seconds. More importantly, the raw responses, failed search, and pagination data never entered the agent's context. Those numbers describe that test, not every request.
 
-**A skill is different from a tool.** The usual alternative to writing a server is to write a skill: a doc that teaches the agent how to use the raw API. That works. But the agent still executes every step. It still pays the turn cost, still burns tokens re-reading its own output between calls, still has to decide what to do when a search returns empty. A skill improves the agent's instructions. A tool removes the steps from the agent entirely. For any workflow you'll run more than a handful of times, removing the steps wins.
+A skill was another option. I could have written instructions that taught the agent how to use the raw API. The agent would still execute each step, read each response back into context, and decide what to try after an empty search. A skill explains the sequence. This server executes it.
 
-**The vendor I wanted to use didn't work.** When I started building this, I went with SearchAPI because it was significantly cheaper. That lasted until I noticed the same request would return different results on every call. I'd query reviews for a location, get nothing back, and have no way to know if the place genuinely had no reviews or if the API just failed silently. This happened often enough that I couldn't trust the data. So I switched to SerpAPI, which costs more but returns consistent results. The code is built so that if SearchAPI improves (or a cheaper alternative shows up), swapping back is a config change, not a rewrite.
+I started with SearchAPI because it was much cheaper. Then identical requests began returning different results. Sometimes a location came back with no reviews, and I could not tell whether that was true or whether the request had failed silently. It happened often enough that I stopped trusting the data. SerpAPI cost more but behaved consistently, so I switched. Both providers implement the same interface, which kept the change small.
 
-**You don't want to pay for the same data twice.** Every API call costs money. If someone asks about the same company tomorrow, the server shouldn't have to hit the API again. So results are cached in PostgreSQL. Each batch of fetched data gets stored as a versioned snapshot. Same question twice, one API bill. (There's no automatic expiry yet — cached data is reused until it's refreshed manually, which is a fine tradeoff for reviews that change slowly.)
+Every provider request costs money, so the server stores results in PostgreSQL as versioned snapshots. A later request for the same company can use the cache if it already contains enough reviews. There is no automatic expiry yet. Cached reviews remain until I refresh them manually.
 
-**Most of the time you don't need every review.** Each page of reviews from the API is a separate billable request, and a busy location might have hundreds of reviews. A subset of the best, worst, and newest usually tells you what you need to know. So there are two tools: one that gives a quick overview with a sensible default, and one that gives the AI full control over exactly how many reviews to fetch. The AI picks the right one depending on what you're asking for.
+Fetching every review would be expensive and rarely useful. The overview defaults to three locations and twenty reviews per sort order. Separate place-level tools let the agent request a narrower sample when that is enough.
 
-**APIs go down.** External services fail and hit rate limits. The system retries automatically with increasing wait times, so a temporary outage becomes a brief delay rather than a broken response.
+Provider requests can time out or hit rate limits. The server retries those failures with exponential backoff and jitter.
 
 ## The takeaway
 
-Google Reviews is just one example. The pattern works anywhere a human currently looks something up in a system.
+Google Reviews gave me a concrete workflow to test: repeated lookups with predictable steps and paid requests along the way.
 
-Look at the most repetitive "lookup" tasks you or your team do. Order status. Availability checks. Review sentiment. Whatever it is, if a person is copying data from one system to answer a question in another, that's a candidate for an MCP tool.
+The same approach could fit other repeated lookups, such as checking an order or querying availability. The useful boundary is a task with stable steps that an agent would otherwise repeat by hand.
 
-Each of these follows the same architecture: define the tool, connect it to the data source, wrap it in an MCP server, let the AI call it when relevant.
+The architecture is small: typed tool definitions call a service, and the service talks to the data source.
 
-Right now, the hard part isn't the AI itself. It's connecting it to the messy, fragmented systems where actual work happens. You don't need to rebuild your tech stack. One server with one or two tools is enough to prove the value. Build clean interfaces, cache results, abstract your vendors. The work compounds.
+The interesting part of this project was not getting a model to summarize reviews. It was deciding which steps belonged in the agent and which belonged in ordinary code. Search retries, pagination, provider quirks, and caching were easier to test once they lived in the server. The agent was left with the part it was good at: reading the result and answering the question.
 
-The Model Context Protocol is open and growing. You can explore the specification at [modelcontextprotocol.io](https://modelcontextprotocol.io).
+The protocol specification is available at [modelcontextprotocol.io](https://modelcontextprotocol.io).

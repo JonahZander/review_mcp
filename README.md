@@ -4,19 +4,19 @@
   <img src="blog/hero.png" alt="AI agent pulling Google Reviews across multiple locations" width="720" />
 </p>
 
-A purpose-built [Model Context Protocol](https://modelcontextprotocol.io) server that lets an AI agent sample Google Reviews for a company in **one tool call** - across a bounded set of locations, sorted by best / worst / newest / most-relevant, and cached in PostgreSQL so the same question isn't billed twice.
+A [Model Context Protocol](https://modelcontextprotocol.io) server that samples Google Reviews for a company in one tool call. It covers a bounded set of locations and four sort orders, then caches the result in PostgreSQL.
 
-> **Companion essay:** [`blog/post.md`](./blog/post.md) - *Building the bridges your AI needs.* Explains what an MCP server is, what this one does, and the engineering tradeoffs behind it.
+> Companion essay: [`blog/post.md`](./blog/post.md), *Building the bridges your AI needs*
 
 ---
 
 ## Why this exists
 
-SerpAPI already ships a generic MCP server. An agent could use that and do the whole job itself: search for places, choose locations, call "get reviews" once for best, again for worst, again for newest, and paginate as needed. It works - but every one of those steps is another agent turn, another round of reasoning, more tokens, and another billed API call.
+SerpAPI already ships a generic MCP server. An agent can use it to search for places, choose locations, fetch each sort order, and paginate. This server moves that repeated sequence into one tool.
 
-**One test run, measured in 2026:** pulling an overview for Madrona Bakery took **2 MCP tool calls** (one to find the place, one for the overview) and about twelve seconds. Inside the server, that fanned out to **11 SerpAPI requests** - one search that tried three query variants, then four sort orders × two pages each. An equivalent low-level workflow would have required roughly 11 agent-directed steps. This is an example from one run, not a latency or turn-count guarantee.
+In one 2026 test run, pulling an overview for Madrona Bakery took two MCP calls and about twelve seconds. The server made eleven SerpAPI requests: three search variants, followed by four sort orders across two pages each. These figures describe that run, not every request.
 
-When a workflow is predictable enough to describe in a sentence, the agent shouldn't have to rediscover it every time.
+The agent receives one combined result instead of managing the intermediate responses itself.
 
 ## Architecture
 
